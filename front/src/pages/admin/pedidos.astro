@@ -1,0 +1,118 @@
+---
+import AdminLayout from '../../layouts/AdminLayout.astro';
+import EstadoPedidoForm from '../../components/EstadoPedidoForm.astro';
+import PedidosEnVivo from '../../components/PedidosEnVivo';
+import { gql } from '../../lib/graphql';
+
+const ESTADOS = ['PENDIENTE', 'PAGADO', 'ENVIADO', 'ENTREGADO', 'CANCELADO'];
+
+interface Pedido {
+  id: string;
+  fecha: string;
+  total: number;
+  estado: string;
+  metodoPago: string | null;
+  transaccionPagoId: string | null;
+  pagoEnOxxo: boolean;
+  fichaOxxo: { referencia: string | null; vence: string; vencida: boolean } | null;
+  estadosSiguientes: string[];
+  usuario: { nombre: string };
+  detalles: { cantidad: number; variante: { tono: string | null; producto: { nombre: string } } }[];
+}
+
+// Filtro por estado desde la URL: /admin/pedidos?estado=PAGADO
+const estadoParam = Astro.url.searchParams.get('estado') ?? '';
+const filtro = ESTADOS.includes(estadoParam) ? estadoParam : null;
+
+let pedidos: Pedido[] = [];
+// true si el backend tiene OXXO_SIMULAR=true (solo pruebas)
+let simulacionOxxo = false;
+let error: string | null = null;
+try {
+  ({ pedidos, simulacionOxxo } = await gql<{ pedidos: Pedido[]; simulacionOxxo: boolean }>(
+      `query ($estado: StatusPedido) {
+        simulacionOxxo
+        pedidos(estado: $estado) {
+          id fecha total estado metodoPago transaccionPagoId pagoEnOxxo estadosSiguientes
+          fichaOxxo { referencia vence vencida }
+          usuario { nombre }
+          detalles { cantidad variante { tono producto { nombre } } }
+        }
+      }`,
+      { estado: filtro },
+      Astro.locals.accessToken
+    ));
+} catch (e) {
+  error = e instanceof Error ? e.message : 'Error desconocido';
+}
+---
+
+<AdminLayout titulo="Pedidos" descripcion="Los pedidos entregados o cancelados ya no se pueden modificar.">
+  {error && <div class="aviso aviso--error" role="alert">{error}</div>}
+
+  <form class="admin-filtros" method="get">
+    <select class="input" name="estado" aria-label="Filtrar por estado" onchange="this.form.submit()">
+      <option value="">Todos los estados</option>
+      {ESTADOS.map((e) => <option value={e} selected={e === filtro}>{e}</option>)}
+    </select>
+    <noscript><button class="btn btn-secondary btn-sm" type="submit">Filtrar</button></noscript>
+  </form>
+
+  {/* Tiempo real: el bloque "tabla-pedidos" se actualiza solo con pedidos nuevos y cambios de estado */}
+  <PedidosEnVivo client:only="react" modo="staff" region="tabla-pedidos" />
+
+  <div id="tabla-pedidos">
+  <p class="admin-conteo">{pedidos.length} pedido{pedidos.length === 1 ? '' : 's'}</p>
+
+  <div class="panel-tabla-wrap" id="pedidos">
+    <table class="panel-tabla">
+      <thead>
+        <tr><th>Pedido</th><th>Cliente</th><th>Fecha</th><th>Productos</th><th>Total</th><th>Pago</th><th>Estado</th></tr>
+      </thead>
+      <tbody>
+        {
+          pedidos.map((p) => (
+            <tr>
+              <td>#{p.id}</td>
+              <td>{p.usuario.nombre}</td>
+              <td>{p.fecha}</td>
+              <td>
+                {p.detalles.map((d) => (
+                  <div>{d.cantidad} × {d.variante.producto.nombre}{d.variante.tono ? ` (${d.variante.tono})` : ''}</div>
+                ))}
+              </td>
+              <td>${p.total.toFixed(2)}</td>
+              <td>
+                {p.metodoPago ? (
+                  <>
+                    {p.metodoPago === 'PAYPAL' ? 'PayPal' : p.pagoEnOxxo ? 'OXXO (Mercado Pago)' : 'Mercado Pago'}
+                    <div class="panel-pago">{p.transaccionPagoId}</div>
+                  </>
+                ) : p.estado === 'PENDIENTE' && p.fichaOxxo ? (
+                  <>
+                    {p.fichaOxxo.vencida ? 'Ficha OXXO vencida' : 'Esperando pago en OXXO'}
+                    <div class="panel-pago">Ref. {p.fichaOxxo.referencia ?? '—'} · vence {p.fichaOxxo.vence}</div>
+                    {simulacionOxxo && (
+                      <form method="post" action="/api/admin/oxxo-simular">
+                        <input type="hidden" name="pedidoId" value={p.id} />
+                        <button class="btn btn-secondary btn-sm" type="submit" title="Solo pruebas: en sandbox no se puede pagar una ficha real">
+                          Simular pago (pruebas)
+                        </button>
+                      </form>
+                    )}
+                  </>
+                ) : (
+                  <span class="panel-pago">—</span>
+                )}
+              </td>
+              <td>
+                <EstadoPedidoForm pedidoId={p.id} estado={p.estado} siguientes={p.estadosSiguientes} volver="/admin/pedidos" />
+              </td>
+            </tr>
+          ))
+        }
+      </tbody>
+    </table>
+  </div>
+  </div>
+</AdminLayout>

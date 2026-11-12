@@ -1,0 +1,56 @@
+---
+import Layout from '../../layouts/Layout.astro';
+import '../../components/Main.css';
+import TarjetaProducto from '../../components/TarjetaProducto';
+import type { ProductoCatalogo } from '../../lib/types';
+import { gql } from '../../lib/graphql';
+
+interface Categoria {
+  id: string;
+  nombre: string;
+  productos: ProductoCatalogo[];
+}
+
+const QUERY = `
+  query Categoria($id: ID!) {
+    categoria(id: $id) {
+      id nombre
+      productos {
+        id nombre
+        marca { nombre }
+        variantes { id tono codigoHex precio sku imagenUrl inventario { cantidad } }
+        imagenes { urlImagen principal }
+      }
+    }
+  }`;
+
+let categoria: Categoria | null = null;
+let error: string | null = null;
+try {
+  categoria = (await gql<{ categoria: Categoria | null }>(QUERY, { id: Astro.params.id })).categoria;
+} catch (e) {
+  error = e instanceof Error ? e.message : 'Error desconocido';
+}
+if (!error && !categoria) return new Response('Categoría no encontrada', { status: 404 });
+---
+
+<Layout asistente titulo={`${categoria?.nombre ?? 'Categoría'} — Nuvé`}>
+  <div class="main-catalogo">
+    <a class="btn btn-secondary" href="/" style="margin-bottom: 16px;">Volver</a>
+
+    {error && <div class="main-error" role="alert"><p>No pudimos cargar la categoría. {error}</p></div>}
+
+    {
+      categoria && (
+        <>
+          <h2 style="font: var(--text-h2); margin-bottom: 20px;">{categoria.nombre}</h2>
+          <div class="main-grid">
+            {categoria.productos.map((producto) => (
+              <TarjetaProducto client:visible producto={producto} />
+            ))}
+          </div>
+        </>
+      )
+    }
+  </div>
+</Layout>

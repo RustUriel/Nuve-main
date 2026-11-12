@@ -1,0 +1,113 @@
+---
+// Pantalla de pago de un pedido PENDIENTE.
+//   - Tarjeta (Mercado Pago, Checkout API): el formulario está aquí mismo y el
+//     cobro se hace sin salir de Nuvé (componente PagoTarjeta, isla de React).
+//   - PayPal: botón que manda al cliente a la página de PayPal.
+//   - OXXO: botón que genera una ficha para pagar en efectivo (/pago/oxxo/[id]).
+import Layout from '../../layouts/Layout.astro';
+import Avisos from '../../components/Avisos.astro';
+import PagoTarjeta from '../../components/PagoTarjeta';
+import '../../components/Panel.css';
+import '../../components/Pago.css';
+import { gql } from '../../lib/graphql';
+
+interface Pedido {
+  id: string;
+  fecha: string;
+  total: number;
+  estado: string;
+  fichaOxxo: { vencida: boolean } | null;
+  detalles: { cantidad: number; subtotal: number; variante: { tono: string | null; producto: { nombre: string } } }[];
+}
+
+// Llave PÚBLICA de Mercado Pago (no es secreta: solo sirve para mostrar el formulario)
+const PUBLIC_KEY: string =
+  process.env.PUBLIC_MP_PUBLIC_KEY ?? (import.meta.env.PUBLIC_MP_PUBLIC_KEY as string | undefined) ?? '';
+
+const { id } = Astro.params;
+const usuario = Astro.locals.usuario!;
+
+let pedido: Pedido | null = null;
+let error: string | null = null;
+try {
+  pedido = (
+    await gql<{ pedido: Pedido | null }>(
+      `query ($id: ID!) {
+        pedido(id: $id) {
+          id fecha total estado fichaOxxo { vencida }
+          detalles { cantidad subtotal variante { tono producto { nombre } } }
+        }
+      }`,
+      { id },
+      Astro.locals.accessToken
+    )
+  ).pedido;
+  if (!pedido) error = 'No encontramos ese pedido.';
+} catch (e) {
+  error = e instanceof Error ? e.message : 'Error desconocido';
+}
+
+const pesos = new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' });
+---
+
+<Layout titulo="Pagar pedido — Nuvé">
+  <div class="pago">
+    <h2 class="panel-titulo">Pagar pedido</h2>
+    <Avisos />
+    {error && <div class="aviso aviso--error" role="alert">{error}</div>}
+
+    {
+      pedido && (
+        <>
+          <section class="pago-resumen" aria-label="Resumen del pedido">
+            <div class="pago-resumen__fila">
+              <span>Pedido #{pedido.id}</span>
+              <span>{pedido.fecha}</span>
+            </div>
+            {pedido.detalles.map((d) => (
+              <div class="pago-resumen__fila">
+                <span>
+                  {d.cantidad} × {d.variante.producto.nombre}
+                  {d.variante.tono ? ` (${d.variante.tono})` : ''}
+                </span>
+                <span>{pesos.format(d.subtotal)}</span>
+              </div>
+            ))}
+            <div class="pago-resumen__fila pago-resumen__total">
+              <span>Total</span>
+              <span>{pesos.format(pedido.total)}</span>
+            </div>
+          </section>
+
+          {pedido.estado === 'PENDIENTE' ? (
+            <>
+              {pedido.fichaOxxo && !pedido.fichaOxxo.vencida && (
+                <div class="aviso" role="status">
+                  Ya generaste una ficha para pagar este pedido en OXXO.{' '}
+                  <a href={`/pago/oxxo/${pedido.id}`}>Ver ficha</a>. Si pagas aquí con otro método, la ficha se cancela.
+                </div>
+              )}
+              <h3 class="panel-subtitulo">Paga con tarjeta</h3>
+              <p class="pago-nota">
+                Pago seguro con Mercado Pago. Los datos de tu tarjeta los procesa Mercado Pago; Nuvé no los guarda.
+              </p>
+              <PagoTarjeta
+                client:only="react"
+                pedidoId={pedido.id}
+                total={pedido.total}
+                publicKey={PUBLIC_KEY}
+                email={usuario.correo}
+              />
+            </>
+          ) : (
+            <div class="aviso" role="status">
+              Este pedido ya no está pendiente de pago (está <strong>{pedido.estado}</strong>).
+            </div>
+          )}
+
+          <p><a class="btn btn-secondary" href="/mi-cuenta">Ver mis pedidos</a></p>
+        </>
+      )
+    }
+  </div>
+</Layout>
