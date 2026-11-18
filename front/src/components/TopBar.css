@@ -241,6 +241,12 @@
 /* ---------- Escritorio (861px en adelante) ---------- */
 
 @media screen and (min-width: 861px) {
+  /* La barra queda fija arriba: los enlaces a secciones (#catalogo, #filtro-tonos)
+     dejan ese espacio libre para que la sección no quede tapada */
+  html {
+    scroll-padding-top: 96px;
+  }
+
   .topbar {
     position: sticky;
     top: 0;

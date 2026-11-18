@@ -11,9 +11,18 @@
 }
 
 .detalle-producto-img {
+  display: block;
   width: 100%;
+  /* Cuadro fijo: todas las fotos se ven del mismo tamaño y centradas */
+  aspect-ratio: 1 / 1;
+  height: auto;
+  object-fit: contain;
+  padding: 24px;
+  box-sizing: border-box;
   border-radius: var(--radius-card);
-  object-fit: cover;
+  background: #FFFFFF;
+  /* En el grid no se estira a la altura de la columna de información */
+  align-self: start;
 }
 
 .detalle-producto-label {

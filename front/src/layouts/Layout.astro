@@ -6,6 +6,7 @@ import '../styles/responsive.css';
 import TopBar from '../components/TopBar.astro';
 import Footer from '../components/Footer.astro';
 import AsistenteRecomendaciones from '../components/AsistenteRecomendaciones';
+import AvisoCookies from '../components/AvisoCookies.astro';
 
 interface Props {
   titulo?: string;
@@ -35,6 +36,7 @@ const dataTema = tema === 'CLARO' ? 'claro' : tema === 'OSCURO' ? 'oscuro' : und
       <slot />
     </div>
     <Footer />
+    <AvisoCookies />
     {
       asistente && (
         <AsistenteRecomendaciones client:idle conSesion={Boolean(usuario)} nombre={usuario?.nombre.split(' ')[0] ?? null} />

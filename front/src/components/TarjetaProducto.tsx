@@ -4,8 +4,6 @@ import Precio from './Precio';
 import Estrellas from './Estrellas';
 import './Main.css';
 
-const precioMinimo = (p: ProductoCatalogo) => Math.min(...p.variantes.map((v) => v.precio));
-
 /**
  * Tarjeta del catálogo. Muestra un círculo por cada tono del producto:
  * al pulsar uno cambia la foto (si el tono tiene la suya), el precio
@@ -45,10 +43,18 @@ export default function TarjetaProducto({
         </a>
       )}
       <p className="producto-marca">{producto.marca.nombre}</p>
-      <h3 className="producto-nombre">{producto.nombre}</h3>
-      {producto.totalResenas ? <Estrellas valor={producto.calificacionPromedio ?? 0} total={producto.totalResenas} /> : null}
+      <h3 className="producto-nombre" title={producto.nombre}>{producto.nombre}</h3>
+      {/* Todas las tarjetas tienen las mismas filas (calificación, tonos, nombre del tono)
+          para que se vean iguales aunque un producto no tenga reseñas o tenga un solo tono */}
+      <div className="producto-calificacion">
+        {producto.totalResenas ? (
+          <Estrellas valor={producto.calificacionPromedio ?? 0} total={producto.totalResenas} />
+        ) : (
+          <span className="producto-sin-resenas">Sin reseñas</span>
+        )}
+      </div>
 
-      {varios && (
+      {producto.variantes.length > 0 && (
         <div className="producto-tonos" role="radiogroup" aria-label={`Tonos de ${producto.nombre}`}>
           {producto.variantes.map((v) => {
             const s = v.inventario?.cantidad ?? null;
@@ -73,16 +79,12 @@ export default function TarjetaProducto({
           })}
         </div>
       )}
-      {variante?.tono && (
-        <p className="producto-tono-nombre">
-          {variante.tono}
-          {agotado ? ' · Agotado' : ''}
-        </p>
-      )}
-
-      <p className="producto-precio">
-        {varios ? <Precio valor={variante.precio} /> : <Precio valor={precioMinimo(producto)} prefijo="Desde" />}
+      <p className="producto-tono-nombre">
+        {variante?.tono ?? (varios ? '' : 'Tono único')}
+        {agotado ? ' · Agotado' : ''}
       </p>
+
+      <p className="producto-precio">{variante && <Precio valor={variante.precio} />}</p>
       <a className="btn btn-primary" href={href}>
         Ver producto
       </a>

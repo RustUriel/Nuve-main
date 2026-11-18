@@ -1,0 +1,97 @@
+---
+// front/src/components/AvisoCookies.astro
+// Aviso de cookies (LFPDPPP): se muestra la primera vez que alguien entra a la tienda.
+// Nuvé solo usa cookies y almacenamiento necesarios (sesión, carrito, moneda y pagos),
+// por eso el aviso es informativo: basta con "Entendido", no se pide aceptar o rechazar.
+// Al cerrarlo se guarda en el navegador para no volver a mostrarlo.
+---
+
+<section id="aviso-cookies" class="aviso-cookies" role="region" aria-label="Aviso de cookies" hidden>
+  <p class="aviso-cookies__texto">
+    Usamos cookies y almacenamiento del navegador necesarios para tu sesión, tu carrito, la moneda que eliges y los
+    pagos. No usamos cookies de publicidad ni de rastreo. Consulta nuestro{' '}
+    <a href="/ayuda/privacidad#cookies">aviso de privacidad</a>.
+  </p>
+  <button type="button" class="btn btn-primary btn-sm aviso-cookies__boton" id="aviso-cookies-cerrar">Entendido</button>
+</section>
+
+<script>
+  const CLAVE = 'nuve_aviso_cookies';
+  const aviso = document.getElementById('aviso-cookies');
+  const boton = document.getElementById('aviso-cookies-cerrar');
+
+  let visto = false;
+  try {
+    visto = localStorage.getItem(CLAVE) === '1';
+  } catch {
+    /* sin almacenamiento: se muestra el aviso */
+  }
+
+  if (aviso && !visto) {
+    aviso.hidden = false;
+    document.body.classList.add('con-aviso-cookies');
+  }
+
+  boton?.addEventListener('click', () => {
+    try {
+      localStorage.setItem(CLAVE, '1');
+    } catch {
+      /* si no se puede guardar, solo se oculta en esta página */
+    }
+    if (aviso) aviso.hidden = true;
+    document.body.classList.remove('con-aviso-cookies');
+  });
+</script>
+
+<style is:global>
+  .aviso-cookies {
+    position: fixed;
+    left: 16px;
+    bottom: 16px;
+    z-index: 70;
+    width: min(560px, calc(100vw - 32px));
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 16px 20px;
+    background: var(--color-surface);
+    color: var(--color-ink);
+    border: 1px solid var(--color-line);
+    border-radius: var(--radius-card);
+    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.16);
+  }
+
+  .aviso-cookies[hidden] {
+    display: none;
+  }
+
+  .aviso-cookies__texto {
+    margin: 0;
+    font: var(--text-body-sm);
+  }
+
+  .aviso-cookies__texto a {
+    color: var(--color-accent-text);
+    text-decoration: underline;
+  }
+
+  .aviso-cookies__boton {
+    flex-shrink: 0;
+  }
+
+  /* En celular el aviso ocupa todo el ancho y el botón de la Asesora sube para no quedar tapado */
+  @media (max-width: 760px) {
+    .aviso-cookies {
+      left: 16px;
+      right: 16px;
+      width: auto;
+      flex-direction: column;
+      align-items: stretch;
+    }
+
+    .con-aviso-cookies .asesora-boton,
+    .con-aviso-cookies .asistente--flotante {
+      display: none;
+    }
+  }
+</style>
