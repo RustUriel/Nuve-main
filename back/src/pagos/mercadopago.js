@@ -224,6 +224,17 @@ export async function crearFichaOxxo(pedido, intento = 'primera') {
     }
   }
 
+  if (!ficha.referencia) {
+    // Se registra el estado para poder diagnosticar (no incluye datos sensibles).
+    const pago = order?.transactions?.payments?.[0] ?? {};
+    console.error('[mercadopago] ficha OXXO sin referencia', JSON.stringify({
+      orden: order.id, estado: order.status, detalle: order.status_detail, pagoEstado: pago.status, pagoDetalle: pago.status_detail,
+    }));
+    if (['failed', 'canceled', 'cancelled', 'expired'].includes(order.status) || pago.status === 'failed') {
+      throw datosInvalidos(`Mercado Pago no generó la ficha de OXXO (${pago.status_detail || order.status_detail || order.status}).`);
+    }
+  }
+
   return {
     ordenId: String(order.id),
     ...ficha,

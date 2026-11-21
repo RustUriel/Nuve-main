@@ -40,6 +40,18 @@ try {
     )
   ).pedido;
   if (!pedido) error = 'No encontramos ese pedido.';
+  // Si la ficha se guardó sin referencia, se vuelve a pedir a Mercado Pago al recargar
+  if (pedido?.estado === 'PENDIENTE' && pedido.fichaOxxo && !pedido.fichaOxxo.referencia && !pedido.fichaOxxo.vencida) {
+    pedido = (
+      await gql<{ pagarEnOxxo: Pedido }>(
+        `mutation ($id: ID!) {
+          pagarEnOxxo(pedidoId: $id) { id total estado pagoEnOxxo fichaOxxo { referencia codigoBarras url vence vencida } }
+        }`,
+        { id },
+        Astro.locals.accessToken
+      )
+    ).pagarEnOxxo;
+  }
 } catch (e) {
   error = e instanceof Error ? e.message : 'Error desconocido';
 }

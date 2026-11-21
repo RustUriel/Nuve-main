@@ -1096,7 +1096,18 @@ export const resolvers = protegerResolvers({
     pagarEnOxxo: async (_, { pedidoId }, ctx) => {
       const pedido = await pedidoParaPagar(ctx, pedidoId);
       // Si ya tiene una ficha vigente, se regresa la misma (no se generan dos)
-      if (pedido.oxxoOrdenId && !pedido.oxxoVencida) return findById('pedido', mapPedido, pedido.id);
+      if (pedido.oxxoOrdenId && !pedido.oxxoVencida) {
+        const actual = await findById('pedido', mapPedido, pedido.id);
+        if (actual.fichaOxxo?.referencia) return actual;
+        // La ficha se guardó sin referencia: se vuelve a consultar en Mercado Pago
+        const orden = await mercadoPago.consultarOrden(pedido.oxxoOrdenId);
+        if (orden.referencia) {
+          await guardarFichaOxxo(pedido.id, { ordenId: pedido.oxxoOrdenId, url: orden.url, referencia: orden.referencia, codigoBarras: orden.codigoBarras });
+          return findById('pedido', mapPedido, pedido.id);
+        }
+        if (!orden.terminado) return actual;
+        // La orden falló en Mercado Pago: se genera una nueva
+      }
       // Si la anterior venció, se cancela y se genera otra
       if (pedido.oxxoOrdenId) await mercadoPago.cancelarOrden(pedido.oxxoOrdenId);
 
