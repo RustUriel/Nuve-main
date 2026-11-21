@@ -87,6 +87,12 @@ const metodo = (p: Pedido) => (p.metodoPago === 'PAYPAL' ? 'PayPal' : p.pagoEnOx
                     )}
                   </td>
                   <td>
+                    {['PAGADO', 'ENVIADO', 'ENTREGADO'].includes(p.estado) && (
+                      <div class="panel-inline">
+                        <a class="btn btn-secondary btn-sm" href={`/api/pedido/prefactura?id=${p.id}&formato=pdf`}>Prefactura PDF</a>
+                        <a class="btn btn-secondary btn-sm" href={`/api/pedido/prefactura?id=${p.id}&formato=xml`}>XML</a>
+                      </div>
+                    )}
                     {p.estado === 'PENDIENTE' && (
                       <div class="panel-inline">
                         {p.fichaOxxo ? (

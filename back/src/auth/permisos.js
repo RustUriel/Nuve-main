@@ -35,6 +35,8 @@ export const PERMISOS = {
     pedidos: AUTH,
     pedido: AUTH,
     misPedidos: AUTH,
+    prefactura: AUTH,
+    bitacora: [ADMIN],
   },
 
   Mutation: {

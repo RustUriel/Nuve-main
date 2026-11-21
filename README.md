@@ -14,6 +14,7 @@ nuve-ecommerce-integrado/
 
 - **Node.js 22.12 o superior** (lo exige Astro 7). Verifica con `node --version`; si tienes una versión menor, instala la LTS desde https://nodejs.org
 - PostgreSQL 14 o superior
+- MongoDB (opcional en local; se usa para la bitácora de eventos). Gratis en MongoDB Atlas.
 
 ## Arranque rápido
 
@@ -25,6 +26,8 @@ $psql = "C:\Program Files\PostgreSQL\18\bin\psql.exe"
 cd back
 & $psql -U postgres -d nuve_ecommerce -f db/schema.sql
 & $psql -U postgres -d nuve_ecommerce -f db/seed.sql
+# Migraciones, en orden (se pueden repetir sin problema)
+Get-ChildItem db/migraciones/*.sql | Sort-Object Name | ForEach-Object { node db/migrar.js $_.FullName }
 ```
 
 > Si ya tenías la base de la versión anterior, bórrala y vuelve a crearla
@@ -48,6 +51,29 @@ Copy-Item .env.example .env
 npm install
 npm run dev                       # http://localhost:5173
 ```
+
+## Pruebas automatizadas y CI/CD
+
+```powershell
+cd back
+npm run lint      # análisis de calidad (ESLint)
+npm test          # pruebas automatizadas (node --test)
+```
+
+Las pruebas de integración con la base de datos corren con `NUVE_PRUEBAS_BD=1` y la prueba de
+la bitácora corre si hay `MONGODB_URI`. En GitHub las corre el pipeline:
+
+- `.github/workflows/ci.yml` (en cada push y pull request): backend (ESLint, base de prueba con
+  PostgreSQL y MongoDB, pruebas), frontend (`astro check` y build de producción) y MCP (sintaxis).
+- `.github/workflows/cd.yml` (cuando CI termina bien en `main`): dispara el despliegue en Render
+  (backend) y Netlify (frontend) y comprueba que respondan. Necesita los secretos
+  `RENDER_DEPLOY_HOOK_URL` y `NETLIFY_BUILD_HOOK_URL` en GitHub > Settings > Secrets and variables > Actions.
+
+## Prefactura (estructura CFDI)
+
+Al pagar un pedido, el cliente y el personal pueden descargar su prefactura en XML y PDF
+(Mi cuenta > Mis pedidos, o Administración > Pedidos). El XML se valida contra el esquema oficial
+del SAT (`back/src/facturacion/xsd`). No lleva sello ni timbrado: no tiene validez fiscal.
 
 ## Usuarios de prueba (contraseña de todos: `Nuve2026!`)
 

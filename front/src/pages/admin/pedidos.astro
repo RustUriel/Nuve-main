@@ -87,6 +87,12 @@ try {
                   <>
                     {p.metodoPago === 'PAYPAL' ? 'PayPal' : p.pagoEnOxxo ? 'OXXO (Mercado Pago)' : 'Mercado Pago'}
                     <div class="panel-pago">{p.transaccionPagoId}</div>
+                    {['PAGADO', 'ENVIADO', 'ENTREGADO'].includes(p.estado) && (
+                      <div class="panel-pago">
+                        Prefactura: <a href={`/api/pedido/prefactura?id=${p.id}&formato=pdf`}>PDF</a> ·{' '}
+                        <a href={`/api/pedido/prefactura?id=${p.id}&formato=xml`}>XML</a>
+                      </div>
+                    )}
                   </>
                 ) : p.estado === 'PENDIENTE' && p.fichaOxxo ? (
                   <>

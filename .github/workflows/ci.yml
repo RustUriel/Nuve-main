@@ -1,0 +1,100 @@
+# .github/workflows/ci.yml
+# Integración continua de Nuvé. Corre en cada push y en cada pull request.
+#   1. Backend: instala, analiza la calidad del código (ESLint), crea una base de prueba
+#      (esquema + datos de ejemplo + migraciones) y corre las pruebas automatizadas
+#      con PostgreSQL y MongoDB reales como servicios.
+#   2. Frontend: instala, valida los tipos (astro check) y genera el build de producción.
+#   3. MCP: instala y valida la sintaxis del servidor.
+name: CI
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+
+jobs:
+  backend:
+    name: Backend (calidad y pruebas)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: back
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: nuve
+          POSTGRES_PASSWORD: nuve
+          POSTGRES_DB: nuve_ci
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U nuve" --health-interval 5s --health-timeout 5s --health-retries 10
+      mongo:
+        image: mongo:7
+        ports: ['27017:27017']
+        options: >-
+          --health-cmd "mongosh --quiet --eval 'db.runCommand({ ping: 1 }).ok'" --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      DATABASE_URL: postgres://nuve:nuve@localhost:5432/nuve_ci
+      MONGODB_URI: mongodb://localhost:27017
+      MONGODB_DB: nuve_ci
+      JWT_SECRET: secreto-solo-para-ci
+      NUVE_PRUEBAS_BD: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: back/package-lock.json
+      - name: Instalar dependencias
+        run: npm ci
+      - name: Análisis de calidad (ESLint)
+        run: npm run lint
+      - name: Crear la base de prueba (esquema, datos de ejemplo y migraciones)
+        run: |
+          node db/migrar.js db/schema.sql
+          node db/migrar.js db/seed.sql
+          for f in db/migraciones/*.sql; do node db/migrar.js "$f"; done
+      - name: Pruebas automatizadas
+        run: npm test
+
+  frontend:
+    name: Frontend (validación y build)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: front
+    env:
+      GRAPHQL_URL: http://localhost:4000/
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: front/package-lock.json
+      - name: Instalar dependencias
+        run: npm ci
+      - name: Validación de tipos (astro check)
+        run: npx astro check
+      - name: Build de producción
+        run: npm run build
+
+  mcp:
+    name: Servidor MCP (validación)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: mcp
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: mcp/package-lock.json
+      - name: Instalar dependencias
+        run: npm ci
+      - name: Validar sintaxis
+        run: node --check index.js

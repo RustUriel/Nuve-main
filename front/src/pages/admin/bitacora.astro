@@ -1,0 +1,106 @@
+---
+// front/src/pages/admin/bitacora.astro
+// Bitácora de eventos del sistema, guardada en MongoDB (base de documentos).
+// Solo lectura y solo para el administrador. No muestra contraseñas, tokens ni datos de tarjeta:
+// esos nunca se guardan en la bitácora.
+import AdminLayout from '../../layouts/AdminLayout.astro';
+import { gql } from '../../lib/graphql';
+
+interface Evento {
+  id: string;
+  tipo: string;
+  fecha: string;
+  usuarioId: string | null;
+  pedidoId: string | null;
+  datos: string;
+}
+
+const TIPOS = [
+  'SESION_INICIADA',
+  'SESION_FALLIDA',
+  'USUARIO_REGISTRADO',
+  'PASSWORD_CAMBIADA',
+  'PEDIDO_CREADO',
+  'PEDIDO_PAGADO',
+  'PEDIDO_ESTADO_CAMBIADO',
+  'PEDIDO_CANCELADO',
+  'INVENTARIO_ACTUALIZADO',
+  'PRODUCTO_GUARDADO',
+  'PREFACTURA_GENERADA',
+];
+
+const tipoParam = Astro.url.searchParams.get('tipo') ?? '';
+const tipo = TIPOS.includes(tipoParam) ? tipoParam : null;
+
+let disponible = false;
+let eventos: Evento[] = [];
+let error: string | null = null;
+try {
+  const d = await gql<{ bitacora: { disponible: boolean; eventos: Evento[] } }>(
+    `query ($tipo: String) { bitacora(tipo: $tipo, limite: 100) { disponible eventos { id tipo fecha usuarioId pedidoId datos } } }`,
+    { tipo },
+    Astro.locals.accessToken
+  );
+  disponible = d.bitacora.disponible;
+  eventos = d.bitacora.eventos;
+} catch (e) {
+  error = e instanceof Error ? e.message : 'Error desconocido';
+}
+
+const fecha = (iso: string) =>
+  new Date(iso).toLocaleString('es-MX', { timeZone: 'America/Mexico_City', dateStyle: 'short', timeStyle: 'medium' });
+const detalle = (datos: string) => {
+  try {
+    const o = JSON.parse(datos) as Record<string, unknown>;
+    const partes = Object.entries(o).map(([k, v]) => `${k}: ${v}`);
+    return partes.length ? partes.join(' · ') : '—';
+  } catch {
+    return '—';
+  }
+};
+---
+
+<AdminLayout titulo="Bitácora" descripcion="Los 100 eventos más recientes del sistema (inicios de sesión, pedidos, pagos, inventario y productos).">
+  {error && <div class="aviso aviso--error" role="alert">{error}</div>}
+  {!error && !disponible && (
+    <div class="aviso" role="status">La bitácora no está disponible: falta configurar MongoDB (MONGODB_URI) en el servidor o no responde.</div>
+  )}
+
+  <form method="get" class="panel-inline">
+    <label for="tipo" class="sr-only">Filtrar por tipo de evento</label>
+    <select class="input" id="tipo" name="tipo" onchange="this.form.submit()">
+      <option value="">Todos los eventos</option>
+      {TIPOS.map((t) => <option value={t} selected={t === tipo}>{t}</option>)}
+    </select>
+  </form>
+
+  <div class="panel-tabla-wrap">
+    <table class="panel-tabla">
+      <thead>
+        <tr>
+          <th>Fecha</th>
+          <th>Evento</th>
+          <th>Usuario</th>
+          <th>Pedido</th>
+          <th>Detalle</th>
+        </tr>
+      </thead>
+      <tbody>
+        {eventos.length === 0 && (
+          <tr>
+            <td colspan="5">Sin eventos registrados.</td>
+          </tr>
+        )}
+        {eventos.map((e) => (
+          <tr>
+            <td>{fecha(e.fecha)}</td>
+            <td><span class="etiqueta">{e.tipo}</span></td>
+            <td>{e.usuarioId ? `#${e.usuarioId}` : '—'}</td>
+            <td>{e.pedidoId ? `#${e.pedidoId}` : '—'}</td>
+            <td>{detalle(e.datos)}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  </div>
+</AdminLayout>

@@ -584,6 +584,10 @@ export const typeDefs = `#graphql
   }
 
   type Query {
+    """Prefactura (estructura CFDI) de un pedido pagado, enviado o entregado. Dueño del pedido, OPERADOR o ADMIN."""
+    prefactura(pedidoId: ID!): Prefactura!
+    """Bitácora de eventos guardada en MongoDB (solo ADMIN)."""
+    bitacora(tipo: String, limite: Int): Bitacora!
     yo: Usuario
 
     """Precios en otras monedas: tipos de cambio desde MXN (público)."""
@@ -644,6 +648,37 @@ export const typeDefs = `#graphql
   # MUTATION (CRUD completo de las 15 entidades + mutation de negocio
   # crearPedido, que calcula subtotal/total en vez de solo guardar datos)
   # ------------------------------------------------------------------
+
+  """Prefactura con la estructura del CFDI 4.0 (sin sello ni timbrado: no tiene validez fiscal)."""
+  type Prefactura {
+    pedidoId: ID!
+    folio: String!
+    """XML del comprobante."""
+    xml: String!
+    """Representación impresa en PDF, codificada en base64."""
+    pdfBase64: String!
+    """true si el XML pasó la validación contra el esquema (XSD) y los catálogos del SAT."""
+    valida: Boolean!
+    errores: [String!]!
+    total: Float!
+  }
+
+  """Un evento de la bitácora (guardada en MongoDB)."""
+  type EventoBitacora {
+    id: ID!
+    tipo: String!
+    fecha: String!
+    usuarioId: ID
+    pedidoId: ID
+    """Datos del evento en formato JSON."""
+    datos: String!
+  }
+
+  type Bitacora {
+    """false si MongoDB no está configurado o no responde."""
+    disponible: Boolean!
+    eventos: [EventoBitacora!]!
+  }
 
   type Mutation {
     """Firma para subir una imagen a Cloudinary (solo ADMIN)."""

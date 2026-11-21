@@ -36,6 +36,9 @@ import { geminiConfigurado } from './integraciones/gemini.js';
 import { pedirRecomendacion, preguntarReportes } from './asistente/servicio.js';
 import * as interaccion from './interaccion/servicio.js';
 import { validarCatalogo } from './catalogo/validacion.js';
+import { registrarEvento, consultarEventos, enSegundoPlano, TIPOS_EVENTO } from './bitacora/servicio.js';
+import { generarPrefactura } from './facturacion/cfdi.js';
+import { generarPdf } from './facturacion/pdf.js';
 
 const hoy = () => new Date().toISOString().slice(0, 10);
 
@@ -261,7 +264,7 @@ async function restaurarStock(client, pedidoId) {
 
 // Cambia el estado de un pedido respetando el orden permitido (pedidos/estados.js).
 // Si pasa a CANCELADO devuelve el stock. Todo en una transacción.
-async function cambiarEstadoPedido(pedidoId, nuevoEstado) {
+async function cambiarEstadoPedido(pedidoId, nuevoEstado, ctx = null) {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
@@ -280,6 +283,15 @@ async function cambiarEstadoPedido(pedidoId, nuevoEstado) {
     await client.query('COMMIT');
     // Tiempo real: avisa del nuevo estado a admin, operador y al dueño del pedido
     avisarPedidoActualizado(rows[0].id, rows[0].usuario_id);
+    // Bitácora (MongoDB): quién cambió el estado, de cuál a cuál
+    enSegundoPlano(
+      registrarEvento(nuevoEstado === 'CANCELADO' ? 'PEDIDO_CANCELADO' : 'PEDIDO_ESTADO_CAMBIADO', {
+        usuarioId: ctx?.usuario?.id ?? null,
+        pedidoId,
+        datos: { de: previo.rows[0].estado, a: nuevoEstado },
+      }),
+      'bitácora de estado'
+    );
     // Si se cancela un pedido con ficha de OXXO, también se cancela la ficha en Mercado Pago
     if (nuevoEstado === 'CANCELADO' && rows[0].oxxo_orden_id) {
       await mercadoPago.cancelarOrden(rows[0].oxxo_orden_id);
@@ -317,6 +329,35 @@ export const resolvers = protegerResolvers({
     resumenVentas: (_, { periodo }) => resumenVentas(periodo),
     simulacionOxxo: () => PAGOS.oxxo.simular,
 
+    // Prefactura (estructura CFDI 4.0) de un pedido pagado: XML validado contra el XSD del SAT y PDF.
+    // La puede ver el dueño del pedido o el personal de la tienda.
+    prefactura: async (_, { pedidoId }, ctx) => {
+      await asegurarPedidoDelUsuario(ctx, pedidoId);
+      const p = await generarPrefactura(pedidoId);
+      const pdf = await generarPdf(p);
+      enSegundoPlano(
+        registrarEvento('PREFACTURA_GENERADA', {
+          usuarioId: ctx.usuario.id,
+          pedidoId: p.pedido.id,
+          datos: { valida: p.valida },
+        }),
+        'bitacora'
+      );
+      return {
+        pedidoId: String(p.pedido.id),
+        folio: `NUV-${p.pedido.id}`,
+        xml: p.xml,
+        pdfBase64: pdf.toString('base64'),
+        valida: p.valida,
+        errores: p.errores,
+        total: p.resumen.total,
+      };
+    },
+    // Bitácora de eventos (MongoDB). Solo ADMIN.
+    bitacora: async (_, { tipo, limite }) => {
+      if (tipo && !TIPOS_EVENTO.includes(tipo)) throw datosInvalidos('Tipo de evento desconocido.');
+      return consultarEventos({ tipo, limite });
+    },
     yo: async (_, __, ctx) => {
       const usuario = await findById('usuario', mapUsuario, ctx.usuario.id);
       return usuario && usuario.activo ? usuario : null;
@@ -559,10 +600,18 @@ export const resolvers = protegerResolvers({
     // --- Autenticación (públicas: no requieren sesión) ---
     registrar: async (_, { datos }) => {
       const s = await authServicio.registrar(datos);
+      enSegundoPlano(registrarEvento('USUARIO_REGISTRADO', { usuarioId: s.usuarioRow.id }), 'bitácora de registro');
       return { accessToken: s.accessToken, refreshToken: s.refreshToken, usuario: mapUsuario(s.usuarioRow) };
     },
     iniciarSesion: async (_, { correo, password }) => {
-      const s = await authServicio.iniciarSesion({ correo, password });
+      let s;
+      try {
+        s = await authServicio.iniciarSesion({ correo, password });
+      } catch (e) {
+        enSegundoPlano(registrarEvento('SESION_FALLIDA'), 'bitácora de sesión');
+        throw e;
+      }
+      enSegundoPlano(registrarEvento('SESION_INICIADA', { usuarioId: s.usuarioRow.id }), 'bitácora de sesión');
       return { accessToken: s.accessToken, refreshToken: s.refreshToken, usuario: mapUsuario(s.usuarioRow) };
     },
     refrescarToken: async (_, { refreshToken }) => {
@@ -583,7 +632,11 @@ export const resolvers = protegerResolvers({
       ]);
       return mapUsuario(rows[0]);
     },
-    cambiarMiPassword: (_, { actual, nueva }, ctx) => authServicio.cambiarPassword(ctx.usuario.id, actual, nueva),
+    cambiarMiPassword: async (_, { actual, nueva }, ctx) => {
+      const r = await authServicio.cambiarPassword(ctx.usuario.id, actual, nueva);
+      enSegundoPlano(registrarEvento('PASSWORD_CAMBIADA', { usuarioId: ctx.usuario.id }), 'bitácora de contraseña');
+      return r;
+    },
 
     // --- Usuario (solo admin; la contraseña siempre se guarda hasheada) ---
     crearUsuario: async (_, { datos }) => {
@@ -666,10 +719,14 @@ export const resolvers = protegerResolvers({
     },
 
     // --- Producto ---
-    guardarProducto: async (_, { id: tid, datos }) => {
+    guardarProducto: async (_, { id: tid, datos }, ctx) => {
       const limpio = validarProducto(datos);
       const productoId = await guardarProductoCompleto(tid ?? null, limpio);
       avisarInventarioActualizado();
+      enSegundoPlano(
+        registrarEvento('PRODUCTO_GUARDADO', { usuarioId: ctx?.usuario?.id, datos: { productoId: String(productoId), nuevo: !tid } }),
+        'bitácora de producto'
+      );
       return findById('producto', mapProducto, productoId);
     },
     cambiarActivoProducto: async (_, { id: tid, activo }) => {
@@ -750,13 +807,19 @@ export const resolvers = protegerResolvers({
       avisarInventarioActualizado();
       return mapInventario(rows[0]);
     },
-    actualizarInventario: async (_, { id: tid, cantidad }) => {
+    actualizarInventario: async (_, { id: tid, cantidad }, ctx) => {
       if (!Number.isInteger(cantidad) || cantidad < 0) throw datosInvalidos('La cantidad no puede ser negativa.');
       const { rows } = await query(
         'UPDATE inventario SET cantidad = $1, fecha_actualizacion = $2 WHERE id = $3 RETURNING *',
         [cantidad, hoy(), tid]
       );
-      if (rows[0]) avisarInventarioActualizado();
+      if (rows[0]) {
+        avisarInventarioActualizado();
+        enSegundoPlano(
+          registrarEvento('INVENTARIO_ACTUALIZADO', { usuarioId: ctx?.usuario?.id, datos: { inventarioId: String(tid), cantidad } }),
+          'bitácora de inventario'
+        );
+      }
       return rows[0] ? mapInventario(rows[0]) : null;
     },
     eliminarInventario: async (_, { id: tid }) => {
@@ -952,6 +1015,11 @@ export const resolvers = protegerResolvers({
         await client.query('COMMIT');
         // Tiempo real: el pedido aparece al momento en los paneles de admin y operador
         avisarPedidoNuevo(nuevoPedido.id, nuevoPedido.usuario_id);
+        // Bitácora (MongoDB)
+        enSegundoPlano(
+          registrarEvento('PEDIDO_CREADO', { usuarioId: nuevoPedido.usuario_id, pedidoId: nuevoPedido.id, datos: { total: totalPedido } }),
+          'bitácora de pedido'
+        );
         return mapPedido(nuevoPedido);
       } catch (err) {
         await client.query('ROLLBACK');
@@ -966,9 +1034,9 @@ export const resolvers = protegerResolvers({
       if (!pedido) throw datosInvalidos('El pedido no existe.');
       asegurarPropietario(ctx, pedido.usuarioId);
       if (pedido.estado !== 'PENDIENTE') throw datosInvalidos('Solo se pueden cancelar pedidos pendientes.');
-      return cambiarEstadoPedido(tid, 'CANCELADO');
+      return cambiarEstadoPedido(tid, 'CANCELADO', ctx);
     },
-    actualizarPedido: (_, { id: tid, estado }) => cambiarEstadoPedido(tid, estado),
+    actualizarPedido: (_, { id: tid, estado }, ctx) => cambiarEstadoPedido(tid, estado, ctx),
 
     // --- Pagos ---
     // PayPal: redirección a la página de PayPal

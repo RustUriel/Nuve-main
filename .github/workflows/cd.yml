@@ -1,0 +1,50 @@
+# .github/workflows/cd.yml
+# Despliegue continuo de Nuvé. Solo corre cuando el pipeline de CI terminó bien en la rama main.
+# Dispara los "deploy hooks" de Render (backend) y Netlify (frontend). Las URLs de los hooks
+# son secretas: se guardan en GitHub > Settings > Secrets and variables > Actions como
+#   RENDER_DEPLOY_HOOK_URL y NETLIFY_BUILD_HOOK_URL
+# Al final comprueba que el sitio y la API publicados respondan.
+name: CD
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  desplegar:
+    name: Desplegar a producción
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+    environment: produccion
+    env:
+      URL_SITIO: https://nuveweb.netlify.app
+      URL_API: https://nuve-backend-fieo.onrender.com/graphql
+    steps:
+      - name: Desplegar backend en Render
+        env:
+          HOOK: ${{ secrets.RENDER_DEPLOY_HOOK_URL }}
+        run: |
+          if [ -z "$HOOK" ]; then echo "Falta el secreto RENDER_DEPLOY_HOOK_URL"; exit 1; fi
+          curl -fsS -X POST "$HOOK" > /dev/null && echo "Despliegue del backend solicitado"
+      - name: Desplegar frontend en Netlify
+        env:
+          HOOK: ${{ secrets.NETLIFY_BUILD_HOOK_URL }}
+        run: |
+          if [ -z "$HOOK" ]; then echo "Falta el secreto NETLIFY_BUILD_HOOK_URL"; exit 1; fi
+          curl -fsS -X POST -d '{}' "$HOOK" > /dev/null && echo "Build del frontend solicitado"
+      - name: Esperar y comprobar que la API responde
+        run: |
+          for i in $(seq 1 30); do
+            if curl -fsS -m 20 -X POST "$URL_API" -H 'Content-Type: application/json' -d '{"query":"{ __typename }"}' | grep -q Query; then
+              echo "API en línea"; exit 0
+            fi
+            sleep 20
+          done
+          echo "La API no respondió a tiempo"; exit 1
+      - name: Comprobar que el sitio responde
+        run: |
+          sleep 60
+          curl -fsS -m 30 -o /dev/null "$URL_SITIO" && echo "Sitio en línea"

@@ -10,6 +10,7 @@ import { ROLES } from '../auth/config.js';
 import { datosInvalidos, sinPermiso } from '../auth/errores.js';
 import { cancelarOrden } from './mercadopago.js';
 import { avisarPedidoActualizado } from '../tiempoReal/eventos.js';
+import { registrarEvento, enSegundoPlano } from '../bitacora/servicio.js';
 
 /** Pedido listo para cobrarse. Lanza un error si no es del usuario o ya no está pendiente. */
 export async function pedidoParaPagar(ctx, pedidoId) {
@@ -91,6 +92,8 @@ export async function registrarPago({ pedidoId, metodo, transaccionId, monto }) 
     await client.query('COMMIT');
     // Tiempo real: admin, operador y el cliente ven que el pedido ya está PAGADO
     avisarPedidoActualizado(pedidoId);
+    // Bitácora (MongoDB)
+    enSegundoPlano(registrarEvento('PEDIDO_PAGADO', { pedidoId, datos: { metodo, monto: Number(monto) } }), 'bitácora de pago');
 
     // Si tenía una ficha de OXXO y se pagó de otra forma (tarjeta o PayPal),
     // se cancela la ficha para que no se pueda pagar dos veces.
